@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simple Page Replacement Simulator</title>
+<style>
+  /* Simplified, clean CSS */
+  body {
+    font-family: Arial, sans-serif;
+    background-color: #f4f4f9;
+    color: #333;
+    margin: 0;
+    padding: 20px;
+  }
+  .container {
+    display: flex;
+    gap: 20px;
+    max-width: 1000px;
+    margin: 0 auto;
+  }
+  
+  /* Sidebar styles */
+  .sidebar {
+    background: #fff;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    min-width: 250px;
+    height: fit-content;
+  }
+  .input-group {
+    margin-bottom: 15px;
+  }
+  label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+    font-size: 14px;
+  }
+  input, select, button {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-sizing: border-box;
+    font-size: 14px;
+  }
+  button {
+    background-color: #007bff;
+    color: white;
+    border: none;
+    cursor: pointer;
+    font-weight: bold;
+    margin-top: 10px;
+  }
+  button:hover { background-color: #0056b3; }
+  .error { color: red; font-size: 12px; margin-top: 10px; }
+
+  /* Main content styles */
+  .main-content {
+    flex-grow: 1;
+    background: #fff;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    overflow-x: auto;
+  }
+  .summary {
+    margin-bottom: 15px;
+    font-size: 16px;
+    font-weight: bold;
+  }
+  
+  /* Table styles */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: center;
+  }
+  th, td {
+    border: 1px solid #ddd;
+    padding: 10px;
+  }
+  th { background-color: #f8f9fa; }
+  
+  /* Highlight colors */
+  .hit-row { background-color: #e6f4ea; } /* Light green */
+  .fault-row { background-color: #fce8e6; } /* Light red */
+  .status-hit { color: #137333; font-weight: bold; }
+  .status-fault { color: #c5221f; font-weight: bold; }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <div class="sidebar">
+    <h3>Settings</h3>
+    
+    <div class="input-group">
+      <label>Algorithm</label>
+      <select id="algoSelect">
+        <option value="FIFO">FIFO (First-In, First-Out)</option>
+        <option value="Optimal">Optimal</option>
+        <option value="LRU">LRU (Least Recently Used)</option>
+      </select>
+    </div>
+
+    <div class="input-group">
+      <label>Reference String</label>
+      <input type="text" id="refString" value="7 0 1 2 0 3 0 4 2 3 0 3 2" placeholder="e.g. 7 0 1 2 0 3">
+    </div>
+
+    <div class="input-group">
+      <label>Frame Count</label>
+      <input type="number" id="numFrames" value="3" min="1" max="10">
+    </div>
+
+    <button onclick="runSimulation()">Run Simulation</button>
+    <div id="errorMsg" class="error"></div>
+  </div>
+
+  <div class="main-content" id="resultsArea" style="display: none;">
+    <div class="summary" id="summaryText"></div>
+    <table>
+      <thead id="tableHead"></thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+  // Main function triggered by the button
+  function runSimulation() {
+    const rawString = document.getElementById('refString').value;
+    const numFrames = parseInt(document.getElementById('numFrames').value);
+    const algorithm = document.getElementById('algoSelect').value;
+    const errorMsg = document.getElementById('errorMsg');
+
+    // Parse the input string into an array of numbers
+    const refs = rawString.trim().split(/[\s,]+/).filter(x => x !== "").map(Number);
+
+    // Validation
+    if (refs.length === 0 || refs.some(isNaN)) {
+      errorMsg.textContent = "Please enter valid numbers separated by spaces.";
+      return;
+    }
+    if (isNaN(numFrames) || numFrames < 1) {
+      errorMsg.textContent = "Frame count must be at least 1.";
+      return;
+    }
+    errorMsg.textContent = ""; // Clear errors
+
+    // Run the selected algorithm
+    let results = [];
+    if (algorithm === "FIFO") results = runFIFO(refs, numFrames);
+    if (algorithm === "Optimal") results = runOptimal(refs, numFrames);
+    if (algorithm === "LRU") results = runLRU(refs, numFrames);
+
+    // Render the output
+    renderTable(results, numFrames, algorithm);
+  }
+
+  // --- ALGORITHMS ---
+
+  function runFIFO(refs, framesCount) {
+    let frames = [];
+    let queue = []; // Keeps track of order pages were added
+    let steps = [];
+
+    for (let page of refs) {
+      let isHit = frames.includes(page);
+
+      if (!isHit) {
+        if (frames.length < framesCount) {
+          frames.push(page); // Still room, just add it
+        } else {
+          let oldestPage = queue.shift(); // Remove oldest from queue
+          let replaceIndex = frames.indexOf(oldestPage);
+          frames[replaceIndex] = page; // Replace in memory
+        }
+        queue.push(page); // Add new page to end of queue
+      }
+      
+      // Save a copy of the current state for the table
+      steps.push({ page: page, hit: isHit, frames: [...frames] });
+    }
+    return steps;
+  }
+
+  function runOptimal(refs, framesCount) {
+    let frames = [];
+    let steps = [];
+
+    for (let i = 0; i < refs.length; i++) {
+      let page = refs[i];
+      let isHit = frames.includes(page);
+
+      if (!isHit) {
+        if (frames.length < framesCount) {
+          frames.push(page);
+        } else {
+          // Find the page in frames that is needed furthest in the future
+          let distances = frames.map(f => {
+            let nextIndex = refs.indexOf(f, i + 1); // Look ahead
+            return nextIndex === -1 ? Infinity : nextIndex; // If never used again, distance is Infinity
+          });
+          
+          let replaceIndex = distances.indexOf(Math.max(...distances));
+          frames[replaceIndex] = page;
+        }
+      }
+      steps.push({ page: page, hit: isHit, frames: [...frames] });
+    }
+    return steps;
+  }
+
+  function runLRU(refs, framesCount) {
+    let frames = [];
+    let history = []; // Keeps track of all pages seen so far
+    let steps = [];
+
+    for (let page of refs) {
+      let isHit = frames.includes(page);
+
+      if (!isHit) {
+        if (frames.length < framesCount) {
+          frames.push(page);
+        } else {
+          // Look backwards in history to find the page used furthest in the past
+          let lastUsedIndexes = frames.map(f => history.lastIndexOf(f));
+          let replaceIndex = lastUsedIndexes.indexOf(Math.min(...lastUsedIndexes));
+          frames[replaceIndex] = page;
+        }
+      }
+      
+      history.push(page); // Update history
+      steps.push({ page: page, hit: isHit, frames: [...frames] });
+    }
+    return steps;
+  }
+
+  // --- RENDERING ---
+
+  function renderTable(steps, framesCount, algorithmName) {
+    const totalRefs = steps.length;
+    const hits = steps.filter(step => step.hit).length;
+    const faults = steps.filter(step => !step.hit).length;
+
+    // Update Summary
+    document.getElementById('summaryText').textContent = 
+      `${algorithmName} Results: ${totalRefs} Total References | ${faults} Faults | ${hits} Hits`;
+
+    // Build Table Header
+    let theadHTML = '<tr><th>Step</th><th>Reference</th>';
+    for (let i = 1; i <= framesCount; i++) {
+      theadHTML += `<th>Frame ${i}</th>`;
+    }
+    theadHTML += '<th>Status</th></tr>';
+    document.getElementById('tableHead').innerHTML = headHTML = theadHTML;
+
+    // Build Table Body
+    let tbodyHTML = '';
+    steps.forEach((step, index) => {
+      let rowClass = step.hit ? 'hit-row' : 'fault-row';
+      let statusText = step.hit ? '<span class="status-hit">Hit</span>' : '<span class="status-fault">Fault</span>';
+      
+      tbodyHTML += `<tr class="${rowClass}">
+        <td>${index + 1}</td>
+        <td><strong>${step.page}</strong></td>`;
+      
+      // Fill frame columns
+      for (let i = 0; i < framesCount; i++) {
+        let val = step.frames[i] !== undefined ? step.frames[i] : '-';
+        tbodyHTML += `<td>${val}</td>`;
+      }
+      
+      tbodyHTML += `<td>${statusText}</td></tr>`;
+    });
+
+    document.getElementById('tableBody').innerHTML = tbodyHTML;
+    document.getElementById('resultsArea').style.display = 'block'; // Show results
+  }
+</script>
+</body>
+</html>
